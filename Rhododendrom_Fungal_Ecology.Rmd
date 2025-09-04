@@ -7,24 +7,89 @@ date: "2025-09-04"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+gert::git_add("Rhododendron_Fungal_Ecology.Rmd")
+gert::git_commit("Add analysis R Markdown")
+gert::git_push()
 ```
 
 ## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+Analysis scripts for a reseach paper focusing on Fungal Ecology of Rhododendron ponticium
+There are 4 sites from around Ireland.
+Initial analysis was done on the HPC to extract, clean and classify sequences using qiime. 
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+```{r}
+##Step1: Build a phyloseq object
+#Load packages
+library(phyloseq)
+library(Biostrings)
+library(data.table)
+#Read feature table
+feature_table_ITS <- fread("Y:/Tomas Byrne/1_Research/2024_Rponticum_Botanics/Paper/QiimeOutputs/feature-table.tsv", skip = 1)
+feature_ids_ITS <- feature_table_ITS[[1]]
+otu_matrix_ITS <- as.matrix(feature_table_ITS[, -1, with = FALSE])
+rownames(otu_matrix_ITS) <- feature_ids_ITS
 
-```{r cars}
-summary(cars)
+# Remove "I_" prefix from sample names
+colnames(otu_matrix_ITS) <- gsub("^E_", "", colnames(otu_matrix_ITS))
+
+# Create otu_table
+otu_table_physeq_ITS <- otu_table(otu_matrix_ITS, taxa_are_rows = TRUE)
+
+# Load taxonomy with header and full data
+taxonomy_ITS <- read.delim("Y:/Tomas Byrne/1_Research/2024_Rponticum_Botanics/Paper/QiimeOutputs/taxonomy.tsv", header = TRUE, sep = "\t", comment.char = "")
+
+# Set rownames to the Feature ID column
+rownames(taxonomy_ITS ) <- taxonomy_ITS $Feature.ID
+
+# Ensure Taxon column is character for string splitting
+taxonomy_ITS $Taxon <- as.character(taxonomy_ITS $Taxon)
+
+# Split taxonomy into ranks
+tax_split_ITS  <- strsplit(taxonomy_ITS $Taxon, ";\\s*")  # splits by "; " with optional extra whitespace
+
+# Pad any shorter taxonomic paths to length 7 (for standard ranks)
+tax_mat_ITS  <- do.call(rbind, lapply(tax_split_ITS , function(x) {
+  length(x) <- 7  # pad to 7 levels (K, P, C, O, F, G, S)
+  return(x)
+}))
+
+# Set proper column and row names
+colnames(tax_mat_ITS ) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+rownames(tax_mat_ITS ) <- taxonomy_ITS $Feature.ID
+
+# Read in DNA seqs
+dna_ITS <- readDNAStringSet("Y:/Tomas Byrne/1_Research/2024_Rponticum_Botanics/Paper/QiimeOutputs/dna-sequences.fasta")
+names(dna_ITS) <- sub(" .*", "", names(dna_ITS))  # Remove sample names from sequence IDs
+
+# ensure every entry is character:
+tax_mat_ITS <- matrix(
+  as.character(tax_mat_ITS),
+  nrow = nrow(tax_mat_ITS),
+  dimnames = dimnames(tax_mat_ITS)
+)
+
+# now create your tax_table
+tax_table_physeq_ITS <- tax_table(tax_mat_ITS)
+
+# and build your phyloseq object
+ps_ITS <- phyloseq(
+  otu_table_physeq_ITS,
+  tax_table_physeq_ITS,
+  DNAStringSet(dna_ITS)
+)
+
+#CreateObjects
+ps_ITS <- phyloseq(otu_table_physeq_ITS, tax_table_physeq_ITS, DNAStringSet(dna_ITS))
+
+metadata_ITS <- read.csv("Y:/Tomas Byrne/1_Research/2024_Rponticum_Botanics/Paper/QiimeOutputs/metadata.csv",
+                         header = TRUE,
+                         stringsAsFactors = FALSE)
+
+# set metadata rownames to the actual sample IDs
+rownames(metadata_ITS) <- metadata_ITS$Sample_ID
+sample_data_physeq_ITS <- sample_data(metadata_ITS)
+ps_ITS <- merge_phyloseq(ps_ITS, sample_data_physeq_ITS)
+
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
