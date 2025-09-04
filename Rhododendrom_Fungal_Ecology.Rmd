@@ -7,8 +7,8 @@ date: "2025-09-04"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-gert::git_add("Rhododendron_Fungal_Ecology.Rmd")
-gert::git_commit("Add analysis R Markdown")
+gert::git_add(".")
+#gert::git_commit("Update project files")
 gert::git_push()
 ```
 
@@ -69,27 +69,54 @@ tax_mat_ITS <- matrix(
   dimnames = dimnames(tax_mat_ITS)
 )
 
-# now create your tax_table
+# now create tax_table
 tax_table_physeq_ITS <- tax_table(tax_mat_ITS)
-
-# and build your phyloseq object
-ps_ITS <- phyloseq(
-  otu_table_physeq_ITS,
-  tax_table_physeq_ITS,
-  DNAStringSet(dna_ITS)
-)
-
-#CreateObjects
-ps_ITS <- phyloseq(otu_table_physeq_ITS, tax_table_physeq_ITS, DNAStringSet(dna_ITS))
 
 metadata_ITS <- read.csv("Y:/Tomas Byrne/1_Research/2024_Rponticum_Botanics/Paper/QiimeOutputs/metadata.csv",
                          header = TRUE,
                          stringsAsFactors = FALSE)
 
-# set metadata rownames to the actual sample IDs
-rownames(metadata_ITS) <- metadata_ITS$Sample_ID
+# ---- Harmonise sample IDs ---------------------------------------------------
+# Which column in metadata holds the machine/analysis IDs like "sa1" ?
+# Try "Sample_ID" first, fall back to "SampleID"
+id_col <- if ("Sample_ID" %in% names(metadata_ITS)) "Sample_ID" else "SampleID"
+
+# If your OTU columns had an "E_" prefix removed, do the same to the metadata IDs
+metadata_ITS[[id_col]] <- gsub("^E_", "", metadata_ITS[[id_col]])
+
+# Set metadata rownames to those IDs and (optionally) keep a human-readable label
+rownames(metadata_ITS) <- metadata_ITS[[id_col]]
+names(metadata_ITS)[names(metadata_ITS) == id_col] <- "SampleCode"  # keep it as a variable
+
+# (Optional) sanity checks
+otu_ids  <- colnames(otu_matrix_ITS)
+meta_ids <- rownames(metadata_ITS)
+cat("In OTU not in metadata:\n"); print(setdiff(otu_ids,  meta_ids))
+cat("In metadata not in OTU:\n"); print(setdiff(meta_ids, otu_ids))
+
+# Keep only the intersection (prevents empty merges)
+keep <- intersect(otu_ids, meta_ids)
+otu_matrix_ITS <- otu_matrix_ITS[, keep, drop = FALSE]
+metadata_ITS   <- metadata_ITS[keep, , drop = FALSE]
+
+# ---- Rebuild phyloseq cleanly ----------------------------------------------
+otu_table_physeq_ITS <- otu_table(otu_matrix_ITS, taxa_are_rows = TRUE)
+tax_table_physeq_ITS <- tax_table(tax_mat_ITS)
 sample_data_physeq_ITS <- sample_data(metadata_ITS)
-ps_ITS <- merge_phyloseq(ps_ITS, sample_data_physeq_ITS)
+
+ps_ITS <- phyloseq(otu_table_physeq_ITS, tax_table_physeq_ITS, sample_data_physeq_ITS)
+
+# keep only sequences whose IDs match ASV/taxa names in ps_ITS
+dna_sub <- dna_ITS[names(dna_ITS) %in% taxa_names(ps_ITS)]
+
+# attach as refseq via merge
+ps_ITS <- merge_phyloseq(ps_ITS, dna_sub)
+
+# Final check
+sample_names(ps_ITS)[1:10]
+
 
 ```
+
+
 
